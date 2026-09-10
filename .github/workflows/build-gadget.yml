@@ -11,7 +11,7 @@ jobs:
       - name: Checkout Umbrella Frida Repository
         uses: actions/checkout@v4
         with:
-          repository: 'luyeguigen/frida' # 强制拉取主构建仓库
+          repository: 'luyeguigen/frida'
           submodules: recursive
 
       - name: Set up Python & Dependencies
@@ -19,10 +19,11 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Build Tools
+      - name: Install Build Tools & Vala Compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libtool automake autoconf flex bison pkg-config ninja-build
+          # 注意：增加了 valac 编译器，确保 .vala 源码改动能被重新编译
+          sudo apt-get install -y build-essential libtool automake autoconf flex bison pkg-config ninja-build valac
           pip install meson ninja
 
       - name: Download & Setup Android NDK r29
@@ -31,24 +32,28 @@ jobs:
           unzip -q android-ndk-r29-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r29" >> $GITHUB_ENV
 
-      - name: Compile Frida Gadget (arm64)
+      - name: Compile Custom Frida Gadget (arm64)
         run: |
-          # 1. 跑官方脚本拉取基础依赖
-          python tools/ensure-submodules.py frida-core
-          
-          # 2. 强制将子模块替换为你个人修改后的 frida-core 最新代码
+          # 1. 正常拉取所有基础依赖子模块
+          python tools/ensure-submodules.py
+
+          # 2. 强行将 frida-core 替换为你自己的 Fork 源码
           cd subprojects/frida-core
           git remote set-url origin https://github.com/luyeguigen/frida-core.git
           git fetch origin main
           git checkout -f FETCH_HEAD
           echo "=========================================="
-          echo "当前使用的 frida-core 最新提交："
+          echo "确认当前编译的 frida-core 提交记录："
           git log -1 --oneline
           echo "=========================================="
           cd ../..
 
+          # 3. 关键点：清空 ensure-submodules.py 脚本，防止 make 执行时再次触发重置
+          echo "import sys; sys.exit(0)" > tools/ensure-submodules.py
+
+          # 4. 配置并开始编译
           export FRIDA_PREFIX=$(pwd)/build/frida-android-arm64
-          
+
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
             --host=android-arm64 \
