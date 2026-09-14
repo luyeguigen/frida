@@ -1,50 +1,65 @@
-name: Build Frida Gadget
+name: Build Frida Android
 
 on:
   push:
-    branches: [ "custom-frida" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build-android:
     runs-on: ubuntu-22.04
+
     strategy:
       matrix:
-        arch: [arm, arm64]
+        include:
+          - host: android-arm
+            arch_label: 32-bit (arm)
+          - host: android-arm64
+            arch_label: 64-bit (arm64)
+
+    name: Build ${{ matrix.arch_label }}
 
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git curl libglib2.0-dev pkg-config ninja-build flex bison
-          pip install meson
+          sudo apt-get install -y build-essential ninja-build flex bison pkg-config
 
-      - name: Setup Android NDK
-        uses: android-actions/setup-ndk@v3
+      - name: Set up Android NDK
+        uses: nsetup/setup-ndk@v3
         with:
           ndk-version: r25c
 
-      - name: Build Frida Gadget (Android ${{ matrix.arch }})
+      - name: Ensure Submodules
         run: |
-          make gadget-android-${{ matrix.arch }}
+          python3 tools/ensure-submodules.py frida-core
 
-      - name: Upload Artifact
+      - name: Configure and Build
+        run: |
+          export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
+          ./configure \
+            --prefix="$PWD/dist" \
+            --host=${{ matrix.host }} \
+            --enable-portal \
+            -- \
+            -Dfrida-gum:devkits=gum,gumjs \
+            -Dfrida-core:compiler_backend=enabled \
+            -Dfrida-core:devkits=core[cite: 1]
+          make
+          make install[cite: 1]
+
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frida-gadget-android-${{ matrix.arch }}
-          path: |
-            build/frida-android-${{ matrix.arch }}/bin/frida-gadget*.so
-            build/subprojects/frida-core/lib/gadget/frida-gadget*.so
-            build/frida-android-${{ matrix.arch }}/lib/gadget/frida-gadget*.so
+          name: frida-server-${{ matrix.host }}
+          path: dist/bin/frida-server
