@@ -31,9 +31,9 @@ jobs:
       - name: Switch frida-core to custom-frida-core branch
         run: |
           cd subprojects/frida-core
+          git remote set-url origin https://github.com/luyeguigen/frida-core.git
           git fetch origin custom-frida-core
-          git checkout custom-frida-core
-          git pull origin custom-frida-core
+          git checkout FETCH_HEAD -b custom-frida-core
           cd ../..
 
       - name: Install Go toolchain
