@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm, arm64, x86, x86_64]
+        arch: [arm, arm64]
       fail-fast: false
 
     steps:
@@ -47,11 +47,11 @@ jobs:
       - name: Configure
         run: >-
           ./configure
-          "--prefix=$FRIDA_PREFIX"
           --host=android-${{ matrix.arch }}
           --enable-gadget
           --disable-server
           --disable-inject
+          --buildtype=minsize
 
       - name: Compile
         run: make frida-gadget
@@ -59,16 +59,30 @@ jobs:
       - name: Install
         run: make install
 
+      # 调试：查找so文件，确认路径（成功后可删除）
+      - name: Find frida-gadget.so
+        run: find build -name "frida-gadget.so"
+
+      - name: Strip Debug Symbols for Size Optimization
+        run: |
+          STRIP="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          SO_FILE="build/frida-android-${{ matrix.arch }}/lib/frida-1.0/"
+          if [ "${{ matrix.arch }}" = "arm" ] || [ "${{ matrix.arch }}" = "x86" ]; then
+            "$STRIP" --strip-all ${SO_FILE}32/frida-gadget.so
+          else
+            "$STRIP" --strip-all ${SO_FILE}64/frida-gadget.so
+          fi
+
       - name: Upload 32-bit frida-gadget
         if: ${{ !contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v7
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path: ${{ env.FRIDA_PREFIX }}/lib/frida-1.0/32/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
 
       - name: Upload 64-bit frida-gadget
         if: ${{ contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v7
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path: ${{ env.FRIDA_PREFIX }}/lib/frida-1.0/64/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/64/frida-gadget.so
