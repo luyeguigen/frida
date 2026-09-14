@@ -1,65 +1,78 @@
-name: Build Frida Android
+name: Build Frida Android Gadget
 
 on:
+  workflow_dispatch: # 支持在 GitHub 界面手动触发构建
   push:
-    branches: [ main, master ]
-  workflow_dispatch:
+    tags:
+      - 'v*' # 打 Tag 时自动触发，例如 git tag v16.1.4 && git push origin v16.1.4
+
+env:
+  FRIDA_COMPILER_MOD: subprojects/frida-core/src/compiler/go.mod
+  ANDROID_NDK_VERSION: r29
 
 jobs:
-  build-android:
-    runs-on: ubuntu-22.04
-
+  build-android-gadget:
+    name: Build Android Gadget (${{ matrix.arch }})
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - host: android-arm
-            arch_label: 32-bit (arm)
-          - host: android-arm64
-            arch_label: 64-bit (arm64)
-
-    name: Build ${{ matrix.arch_label }}
+        # 包含 32 位 (arm, x86) 和 64 位 (arm64, x86_64)
+        arch: [arm, arm64, x86, x86_64]
+      fail-fast: false
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Check out repo
+        uses: actions/checkout@v7
         with:
-          submodules: recursive
+          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Grab frida-core
+        run: python tools/ensure-submodules.py frida-core
+
+      - name: Install Go toolchain
+        uses: actions/setup-go@v5
         with:
-          python-version: '3.10'
+          go-version-file: ${{ env.FRIDA_COMPILER_MOD }}
+          cache-dependency-path: ${{ env.FRIDA_COMPILER_MOD }}
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build flex bison pkg-config
-
-      - name: Set up Android NDK
-        uses: nsetup/setup-ndk@v3
+      - name: Set up NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r25c
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          add-to-path: false
 
-      - name: Ensure Submodules
-        run: |
-          python3 tools/ensure-submodules.py frida-core
+      - name: Add ANDROID_NDK_ROOT to environment
+        run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
-      - name: Configure and Build
-        run: |
-          export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
-          ./configure \
-            --prefix="$PWD/dist" \
-            --host=${{ matrix.host }} \
-            --enable-portal \
-            -- \
-            -Dfrida-gum:devkits=gum,gumjs \
-            -Dfrida-core:compiler_backend=enabled \
-            -Dfrida-core:devkits=core[cite: 1]
-          make
-          make install[cite: 1]
+      - name: Configure
+        run: >-
+          ./configure
+          "--prefix=$FRIDA_PREFIX"
+          --host=android-${{ matrix.arch }}
+          --enable-gadget
+          --disable-server
+          --disable-portal
+          --disable-inject
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Compile
+        run: make gadget
+
+      - name: Install
+        run: make install
+
+      # 32 位架构路径在 $FRIDA_PREFIX/lib/frida-1.0/32/frida-gadget.so
+      - name: Upload 32-bit frida-gadget
+        if: ${{ !contains(matrix.arch, '64') }}
+        uses: actions/upload-artifact@v7
         with:
-          name: frida-server-${{ matrix.host }}
-          path: dist/bin/frida-server
+          name: frida-gadget-android-${{ matrix.arch }}
+          path: ${{ env.FRIDA_PREFIX }}/lib/frida-1.0/32/frida-gadget.so
+
+      # 64 位架构路径在 $FRIDA_PREFIX/lib/frida-1.0/64/frida-gadget.so
+      - name: Upload 64-bit frida-gadget
+        if: ${{ contains(matrix.arch, '64') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frida-gadget-android-${{ matrix.arch }}
+          path: ${{ env.FRIDA_PREFIX }}/lib/frida-1.0/64/frida-gadget.so
