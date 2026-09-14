@@ -54,7 +54,7 @@ jobs:
           --disable-inject
 
       - name: Compile
-        run: make gadget
+        run: make frida-gadget
 
       - name: Install
         run: make install
