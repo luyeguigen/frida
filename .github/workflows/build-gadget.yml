@@ -1,10 +1,10 @@
 name: Build Frida Android Gadget
 
 on:
-  workflow_dispatch: # 支持在 GitHub 界面手动触发构建
+  workflow_dispatch:
   push:
     tags:
-      - 'v*' # 打 Tag 时自动触发，例如 git tag v16.1.4 && git push origin v16.1.4
+      - 'v*'
 
 env:
   FRIDA_COMPILER_MOD: subprojects/frida-core/src/compiler/go.mod
@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 包含 32 位 (arm, x86) 和 64 位 (arm64, x86_64)
         arch: [arm, arm64, x86, x86_64]
       fail-fast: false
 
@@ -52,7 +51,6 @@ jobs:
           --host=android-${{ matrix.arch }}
           --enable-gadget
           --disable-server
-          --disable-portal
           --disable-inject
 
       - name: Compile
@@ -61,7 +59,6 @@ jobs:
       - name: Install
         run: make install
 
-      # 32 位架构路径在 $FRIDA_PREFIX/lib/frida-1.0/32/frida-gadget.so
       - name: Upload 32-bit frida-gadget
         if: ${{ !contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v7
@@ -69,7 +66,6 @@ jobs:
           name: frida-gadget-android-${{ matrix.arch }}
           path: ${{ env.FRIDA_PREFIX }}/lib/frida-1.0/32/frida-gadget.so
 
-      # 64 位架构路径在 $FRIDA_PREFIX/lib/frida-1.0/64/frida-gadget.so
       - name: Upload 64-bit frida-gadget
         if: ${{ contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v7
