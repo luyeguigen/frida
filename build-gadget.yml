@@ -1,0 +1,73 @@
+name: Build Frida Gadget (Android)
+
+on:
+  workflow_dispatch: # 支持在 GitHub 页面手动点击运行
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Umbrella Frida Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'luyeguigen/frida'
+          submodules: recursive
+
+      - name: Set up Python & Dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Build Tools & Vala Compiler
+        run: |
+          sudo apt-get update
+          # 注意：增加了 valac 编译器，确保 .vala 源码改动能被重新编译
+          sudo apt-get install -y build-essential libtool automake autoconf flex bison pkg-config ninja-build valac
+          pip install meson ninja
+
+      - name: Download & Setup Android NDK r29
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q android-ndk-r29-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r29" >> $GITHUB_ENV
+
+      - name: Compile Custom Frida Gadget (arm64)
+        run: |
+          # 1. 正常拉取所有基础依赖子模块
+          python tools/ensure-submodules.py
+
+          # 2. 强行将 frida-core 替换为你自己的 Fork 源码
+          cd subprojects/frida-core
+          git remote set-url origin https://github.com/luyeguigen/frida-core.git
+          git fetch origin main
+          git checkout -f FETCH_HEAD
+          echo "=========================================="
+          echo "确认当前编译的 frida-core 提交记录："
+          git log -1 --oneline
+          echo "=========================================="
+          cd ../..
+
+          # 3. 关键点：清空 ensure-submodules.py 脚本，防止 make 执行时再次触发重置
+          echo "import sys; sys.exit(0)" > tools/ensure-submodules.py
+
+          # 4. 配置并开始编译
+          export FRIDA_PREFIX=$(pwd)/build/frida-android-arm64
+
+          ./configure \
+            "--prefix=$FRIDA_PREFIX" \
+            --host=android-arm64 \
+            --enable-portal \
+            -- \
+            -Dfrida-gum:devkits=gum,gumjs \
+            -Dfrida-core:compiler_backend=enabled \
+            -Dfrida-core:devkits=core
+
+          make
+          make install
+
+      - name: Upload Gadget Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-gadget-android-arm64
+          path: build/frida-android-arm64/lib/frida-1.0/64/frida-gadget.so
