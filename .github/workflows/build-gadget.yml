@@ -8,6 +8,9 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [arm, arm64]
 
     steps:
       - name: Checkout repository with submodules
@@ -29,18 +32,19 @@ jobs:
           pip install meson
 
       - name: Setup Android NDK
-        uses: nsetup/setup-ndk@v2
+        uses: android-actions/setup-ndk@v3
         with:
           ndk-version: r25c
 
-      - name: Build Frida Gadget (Android ARM64)
+      - name: Build Frida Gadget (Android ${{ matrix.arch }})
         run: |
-          make gadget-android-arm64
+          make gadget-android-${{ matrix.arch }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: frida-gadget-android-arm64
+          name: frida-gadget-android-${{ matrix.arch }}
           path: |
-            build/frida-android-arm64/bin/frida-gadget*.so
+            build/frida-android-${{ matrix.arch }}/bin/frida-gadget*.so
             build/subprojects/frida-core/lib/gadget/frida-gadget*.so
+            build/frida-android-${{ matrix.arch }}/lib/gadget/frida-gadget*.so
