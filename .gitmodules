@@ -1,7 +1,6 @@
 [submodule "frida-gum"]
 	path = subprojects/frida-gum
 	url = https://github.com/frida/frida-gum.git
-//原始
 [submodule "frida-core"]
 	path = subprojects/frida-core
 	url = https://github.com/luyeguigen/frida-core.git
