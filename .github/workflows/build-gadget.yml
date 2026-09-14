@@ -21,12 +21,20 @@ jobs:
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Grab frida-core
         run: python tools/ensure-submodules.py frida-core
+
+      - name: Switch frida-core to custom-frida-core branch
+        run: |
+          cd subprojects/frida-core
+          git fetch origin custom-frida-core
+          git checkout custom-frida-core
+          git pull origin custom-frida-core
+          cd ../..
 
       - name: Install Go toolchain
         uses: actions/setup-go@v5
@@ -44,11 +52,8 @@ jobs:
       - name: Add ANDROID_NDK_ROOT to environment
         run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
-      - name: Configure & Compile & Install (Force Clean Build)
+      - name: Configure & Compile & Install
         run: |
-          # 彻底清除可能存在的旧编译缓存，防止源码改动不生效
-          rm -rf build/
-          
           FRIDA_PREFIX=$(pwd)/build/frida-android-${{ matrix.arch }}
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
@@ -56,23 +61,19 @@ jobs:
             --enable-gadget \
             --disable-server \
             --disable-inject
-            
-          # 强制重新编译整个 frida-core 模块以应用 Vala 代码修改
-          ninja -C build/frida-android-${{ matrix.arch }}/../../build/tmp-android-${{ matrix.arch }} clean || true
-          
           make frida-gadget
           make install
 
       - name: Upload 32-bit frida-gadget
         if: ${{ !contains(matrix.arch, '64') }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
           path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
 
       - name: Upload 64-bit frida-gadget
         if: ${{ contains(matrix.arch, '64') }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
           path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/64/frida-gadget.so
