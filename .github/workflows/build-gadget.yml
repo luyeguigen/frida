@@ -44,29 +44,26 @@ jobs:
       - name: Add ANDROID_NDK_ROOT to environment
         run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
-      - name: Configure
-        run: >-
-          ./configure
-          "--prefix=$FRIDA_PREFIX"
-          --host=android-${{ matrix.arch }}
-          --enable-gadget
-          --disable-server
-          --disable-inject
-          --buildtype=minsize
-
-      - name: Compile
-        run: make frida-gadget
-
-      - name: Install
-        run: make install
+      - name: Configure & Compile & Install
+        run: |
+          export FRIDA_PREFIX=$(pwd)/build/frida-android-${{ matrix.arch }}
+          ./configure \
+            "--prefix=$FRIDA_PREFIX" \
+            --host=android-${{ matrix.arch }} \
+            --enable-gadget \
+            --disable-server \
+            --disable-inject
+          make frida-gadget
+          make install
 
       - name: Strip Debug Symbols for Size Optimization
         run: |
           STRIP="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          SO_PATH="build/frida-android-${{ matrix.arch }}/lib/frida-1.0/"
           if [ "${{ matrix.arch }}" = "arm" ] || [ "${{ matrix.arch }}" = "x86" ]; then
-            "$STRIP" --strip-all  build/frida-android-arm/lib/frida-1.0/32/frida-gadget.so
+            "$STRIP" --strip-all ${SO_PATH}32/frida-gadget.so
           else
-            "$STRIP" --strip-all  build/frida-android-arm64/lib/frida-1.0/64/frida-gadget.so
+            "$STRIP" --strip-all ${SO_PATH}64/frida-gadget.so
           fi
 
       - name: Upload 32-bit frida-gadget
@@ -74,11 +71,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path:  build/frida-android-arm/lib/frida-1.0/32/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
 
       - name: Upload 64-bit frida-gadget
         if: ${{ contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v7
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path: build/frida-android-arm64/lib/frida-1.0/64/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/64/frida-gadget.so
