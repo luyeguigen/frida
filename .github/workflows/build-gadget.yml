@@ -58,7 +58,7 @@ jobs:
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
             --host=android-${{ matrix.arch }} \
-            --buildtype=debugoptimized \
+            --enable-symbols \
             --enable-gadget \
             --disable-server \
             --disable-inject
