@@ -52,13 +52,12 @@ jobs:
       - name: Add ANDROID_NDK_ROOT to environment
         run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
-      - name: Configure & Compile & Install (Debug Build)
+      - name: Configure & Compile & Install
         run: |
           FRIDA_PREFIX=$(pwd)/build/frida-android-${{ matrix.arch }}
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
             --host=android-${{ matrix.arch }} \
-            # --enable-symbols \
             --enable-gadget \
             --disable-server \
             --disable-inject
