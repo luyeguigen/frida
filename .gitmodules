@@ -1,6 +1,7 @@
 [submodule "frida-gum"]
 	path = subprojects/frida-gum
-	url = https://github.com/frida/frida-gum.git
+	url = https://github.com/luyeguigen/frida-gum.git
+	branch = custom-gum
 [submodule "frida-core"]
 	path = subprojects/frida-core
 	url = https://github.com/luyeguigen/frida-core.git
