@@ -1,78 +1,122 @@
+# 工作流名称：定义在 GitHub Actions 界面上显示的名称
 name: Build Frida Android Gadget
 
+# 触发条件配置
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch: # 允许在 GitHub 网页端手动点击按钮触发编译
+  push:              # 当有新的 Git Tag 推送时自动触发（例如推送到 v17.10.0）
     tags:
       - 'v*'
 
+# 全局环境变量设置
 env:
+  # 指定 Go 依赖文件的路径（用于编译 frida-core 内部的编译器）
   FRIDA_COMPILER_MOD: subprojects/frida-core/src/compiler/go.mod
+  # 指定构建使用的 Android NDK 版本
   ANDROID_NDK_VERSION: r29
 
+# 构建任务集合
 jobs:
   build-android-gadget:
+    # 任务名称，使用矩阵变量动态显示当前正在编译的架构（arm 或 arm64）
     name: Build Android Gadget (${{ matrix.arch }})
+    # 运行环境：使用 GitHub 提供的最新 Ubuntu 虚拟机
     runs-on: ubuntu-latest
+    
+    # 矩阵策略配置：并行编译多个架构
     strategy:
       matrix:
-        arch: [arm, arm64]
-      fail-fast: false
+        arch: [arm, arm64] # 分别构建 32 位 (arm) 和 64 位 (arm64) 的 Gadget
+      fail-fast: false     # 设置为 false：即使其中一个架构编译失败，另一个架构也会继续编译
 
     steps:
+      # Step 1: 检出当前主仓库代码
       - name: Check out repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # 拉取完整的 Git 提交历史（防止因浅克隆导致后续分支切换失败）
 
-      - name: Grab frida-core
-        run: python tools/ensure-submodules.py frida-core
+      # Step 2: 使用 Frida 官方脚本同步官方指定的子模块基线
+      - name: Grab frida-core and frida-gum
+        run: |
+          python tools/ensure-submodules.py frida-core
+          python tools/ensure-submodules.py frida-gum
 
+      # Step 3: 将 frida-core 切换到你自定义的远程仓库与 custom-frida-core 分支
       - name: Switch frida-core to custom-frida-core branch
         run: |
           cd subprojects/frida-core
+          # 修改子模块的远程仓库地址为你的 Fork 仓库
           git remote set-url origin https://github.com/luyeguigen/frida-core.git
+          # 从你的远程仓库抓取自定义分支
           git fetch origin custom-frida-core
+          # 强制将子模块代码重置为你自定义分支的最新 HEAD 提交
           git reset --hard FETCH_HEAD
           cd ../..
 
+      # Step 4: [新增优化] 将 frida-gum 切换到你自定义的远程仓库与 custom-gum 分支
+      - name: Switch frida-gum to custom-gum branch
+        run: |
+          cd subprojects/frida-gum
+          # 修改 frida-gum 子模块的远程仓库地址为你的 Fork 仓库
+          git remote set-url origin https://github.com/luyeguigen/frida-gum.git
+          # 抓取你的 frida-gum 自定义分支
+          git fetch origin custom-gum
+          # 强制重置为自定义 gum 分支的最新提交
+          git reset --hard FETCH_HEAD
+          cd ../..
+
+      # Step 5: 配置 Go 语言环境（Frida 编译依赖 Go 来构建部分核心组件）
       - name: Install Go toolchain
         uses: actions/setup-go@v5
         with:
+          # 根据 go.mod 文件自动匹配并安装对应的 Go 版本
           go-version-file: ${{ env.FRIDA_COMPILER_MOD }}
+          # 自动缓存 Go 的依赖包，加快后续编译速度
           cache-dependency-path: ${{ env.FRIDA_COMPILER_MOD }}
 
+      # Step 6: 下载并配置 Android NDK
       - name: Set up NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
-          add-to-path: false
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }} # 读取顶部定义的 r29 版本
+          add-to-path: false                         # 不直接写入全局 PATH，避免工具链冲突
 
+      # Step 7: 写入 NDK 环境变量到 GITHUB_ENV，确保构建系统能识别到 NDK 路径
       - name: Add ANDROID_NDK_ROOT to environment
         run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
+      # Step 8: 执行配置、编译与安装流程
       - name: Configure & Compile & Install
         run: |
+          # 动态定义产物安装的目标绝对路径
           FRIDA_PREFIX=$(pwd)/build/frida-android-${{ matrix.arch }}
+          
+          # 执行 Frida 的 configure 脚本生成构建规则
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
             --host=android-${{ matrix.arch }} \
             --enable-gadget \
             --disable-server \
             --disable-inject
+          
+          # 仅编译 Gadget 动态库，避免编译不必要的 Server 或 Inject 工具
           make frida-gadget
+          # 将编译生成的产物安装到上文定义的 FRIDA_PREFIX 目录
           make install
 
+      # Step 9: 上传 32 位 (arm) 的编译产物到 GitHub Actions Artifacts
       - name: Upload 32-bit frida-gadget
-        if: ${{ !contains(matrix.arch, '64') }}
+        if: ${{ !contains(matrix.arch, '64') }} # 当矩阵架构不包含 '64' 时执行（即 arm 架构）
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
           path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
 
+      # Step 10: 上传 64 位 (arm64) 的编译产物到 GitHub Actions Artifacts
       - name: Upload 64-bit frida-gadget
-        if: ${{ contains(matrix.arch, '64') }}
+        if: ${{ contains(matrix.arch, '64') }}  # 当矩阵架构包含 '64' 时执行（即 arm64 架构）
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
