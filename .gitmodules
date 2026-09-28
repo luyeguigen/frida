@@ -4,6 +4,7 @@
 [submodule "frida-core"]
 	path = subprojects/frida-core
 	url = https://github.com/luyeguigen/frida-core.git
+	branch = custom-frida-core
 [submodule "frida-python"]
 	path = subprojects/frida-python
 	url = https://github.com/frida/frida-python.git
