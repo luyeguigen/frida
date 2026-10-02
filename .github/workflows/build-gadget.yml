@@ -103,7 +103,9 @@ jobs:
           # 定义替换字典：{原字节串: 新字节串}
           # 必须保证 len(old) == len(new)
           replacements = {
-              b'gmain': b'mmain'
+              b'gmain': b'mmain',
+              b'gdbus': b'mdbus',
+              b'org_gtk_gdbus_general': b'org_gtk_mdbus_general'
           }
 
           # 校验字节长度
@@ -138,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/gd32.so
 
       # Step 11: 上传 64 位 (arm64) 的编译产物
       - name: Upload 64-bit frida-gadget
@@ -146,4 +148,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
-          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/64/frida-gadget.so
+          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/gd.so
