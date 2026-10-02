@@ -34,7 +34,7 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 拉取完整的 Git 提交历史（防止因浅克隆导致后续分支切换失败）
+          fetch-depth: 0 # 拉取完整的 Git 提交历史
 
       # Step 2: 使用 Frida 官方脚本同步官方指定的子模块基线
       - name: Grab frida-core and frida-gum
@@ -42,37 +42,29 @@ jobs:
           python tools/ensure-submodules.py frida-core
           python tools/ensure-submodules.py frida-gum
 
-      # Step 3: 将 frida-core 切换到你自定义的远程仓库与 custom-frida-core 分支
+      # Step 3: 将 frida-core 切换到自定义的远程仓库与 custom-frida-core 分支
       - name: Switch frida-core to custom-frida-core branch
         run: |
           cd subprojects/frida-core
-          # 修改子模块的远程仓库地址为你的 Fork 仓库
           git remote set-url origin https://github.com/luyeguigen/frida-core.git
-          # 从你的远程仓库抓取自定义分支
           git fetch origin custom-frida-core
-          # 强制将子模块代码重置为你自定义分支的最新 HEAD 提交
           git reset --hard FETCH_HEAD
           cd ../..
 
-      # Step 4: [新增优化] 将 frida-gum 切换到你自定义的远程仓库与 custom-gum 分支
+      # Step 4: 将 frida-gum 切换到自定义的远程仓库与 custom-gum 分支
       - name: Switch frida-gum to custom-gum branch
         run: |
           cd subprojects/frida-gum
-          # 修改 frida-gum 子模块的远程仓库地址为你的 Fork 仓库
           git remote set-url origin https://github.com/luyeguigen/frida-gum.git
-          # 抓取你的 frida-gum 自定义分支
           git fetch origin custom-gum
-          # 强制重置为自定义 gum 分支的最新提交
           git reset --hard FETCH_HEAD
           cd ../..
 
-      # Step 5: 配置 Go 语言环境（Frida 编译依赖 Go 来构建部分核心组件）
+      # Step 5: 配置 Go 语言环境
       - name: Install Go toolchain
         uses: actions/setup-go@v5
         with:
-          # 根据 go.mod 文件自动匹配并安装对应的 Go 版本
           go-version-file: ${{ env.FRIDA_COMPILER_MOD }}
-          # 自动缓存 Go 的依赖包，加快后续编译速度
           cache-dependency-path: ${{ env.FRIDA_COMPILER_MOD }}
 
       # Step 6: 下载并配置 Android NDK
@@ -80,20 +72,18 @@ jobs:
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: ${{ env.ANDROID_NDK_VERSION }} # 读取顶部定义的 r29 版本
-          add-to-path: false                         # 不直接写入全局 PATH，避免工具链冲突
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          add-to-path: false
 
-      # Step 7: 写入 NDK 环境变量到 GITHUB_ENV，确保构建系统能识别到 NDK 路径
+      # Step 7: 写入 NDK 环境变量到 GITHUB_ENV
       - name: Add ANDROID_NDK_ROOT to environment
         run: echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
       # Step 8: 执行配置、编译与安装流程
       - name: Configure & Compile & Install
         run: |
-          # 动态定义产物安装的目标绝对路径
           FRIDA_PREFIX=$(pwd)/build/frida-android-${{ matrix.arch }}
           
-          # 执行 Frida 的 configure 脚本生成构建规则
           ./configure \
             "--prefix=$FRIDA_PREFIX" \
             --host=android-${{ matrix.arch }} \
@@ -101,22 +91,60 @@ jobs:
             --disable-server \
             --disable-inject
           
-          # 仅编译 Gadget 动态库，避免编译不必要的 Server 或 Inject 工具
           make frida-gadget
-          # 将编译生成的产物安装到上文定义的 FRIDA_PREFIX 目录
           make install
 
-      # Step 9: 上传 32 位 (arm) 的编译产物到 GitHub Actions Artifacts
+      # Step 9: [Patch 优化] 对编译好的 .so 文件进行特征字符串等长替换
+      - name: Patch binary strings in frida-gadget.so
+        run: |
+          python3 -c "
+          import os, glob
+
+          # 定义替换字典：{原字节串: 新字节串}
+          # 必须保证 len(old) == len(new)
+          replacements = {
+              b'gmain': b'mmain',
+              b'gdbus': b'mdbus',
+              b'org_gtk_gdbus_general': b'org_gtk_mdbus_general'
+          }
+
+          # 校验字节长度
+          for old_bytes, new_bytes in replacements.items():
+              assert len(old_bytes) == len(new_bytes), f'Length mismatch: {old_bytes} vs {new_bytes}'
+
+          prefix_dir = 'build/frida-android-${{ matrix.arch }}'
+          so_files = glob.glob(f'{prefix_dir}/**/*.so', recursive=True)
+
+          for file_path in so_files:
+              print(f'[Patch] Processing: {file_path}')
+              with open(file_path, 'rb') as f:
+                  content = f.read()
+              
+              patched = False
+              for old_bytes, new_bytes in replacements.items():
+                  count = content.count(old_bytes)
+                  if count > 0:
+                      content = content.replace(old_bytes, new_bytes)
+                      print(f'  -> Replaced {old_bytes.decode()} to {new_bytes.decode()} ({count} matches)')
+                      patched = True
+              
+              if patched:
+                  with open(file_path, 'wb') as f:
+                      f.write(content)
+                  print(f'  [SUCCESS] Updated {file_path}')
+          "
+
+      # Step 10: 上传 32 位 (arm) 的编译产物
       - name: Upload 32-bit frida-gadget
-        if: ${{ !contains(matrix.arch, '64') }} # 当矩阵架构不包含 '64' 时执行（即 arm 架构）
+        if: ${{ !contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
           path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so
 
-      # Step 10: 上传 64 位 (arm64) 的编译产物到 GitHub Actions Artifacts
+      # Step 11: 上传 64 位 (arm64) 的编译产物
       - name: Upload 64-bit frida-gadget
-        if: ${{ contains(matrix.arch, '64') }}  # 当矩阵架构包含 '64' 时执行（即 arm64 架构）
+        if: ${{ contains(matrix.arch, '64') }}
         uses: actions/upload-artifact@v4
         with:
           name: frida-gadget-android-${{ matrix.arch }}
