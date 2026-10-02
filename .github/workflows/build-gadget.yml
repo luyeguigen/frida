@@ -134,18 +134,46 @@ jobs:
                   print(f'  [SUCCESS] Updated {file_path}')
           "
 
-      # Step 10: 上传 32 位 (arm) 的编译产物
-      - name: Upload 32-bit frida-gadget
-        if: ${{ !contains(matrix.arch, '64') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: frida-gadget-android-${{ matrix.arch }}
-          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/gd32.so
+      # Step10：重命名产物，统一放到 output 目录
+      - name: Rename so file
+        run: |
+          mkdir -p ./output
+          SO_SOURCE=""
+          if ${{ contains(matrix.arch, '64') }}; then
+            SO_SOURCE="build/frida-android-${{ matrix.arch }}/lib/frida-1.0/64/frida-gadget.so"
+            cp "$SO_SOURCE" ./output/gd.so
+            echo "[RENAME] arm64 -> gd.so"
+          else
+            SO_SOURCE="build/frida-android-${{ matrix.arch }}/lib/frida-1.0/32/frida-gadget.so"
+            cp "$SO_SOURCE" ./output/gd32.so
+            echo "[RENAME] arm(32bit) -> gd32.so"
+          fi
 
-      # Step 11: 上传 64 位 (arm64) 的编译产物
-      - name: Upload 64-bit frida-gadget
-        if: ${{ contains(matrix.arch, '64') }}
+    # ========== 矩阵全部任务完成后，执行聚合打包 job ==========
+  gather_artifacts:
+    name: Package all so into one zip archive
+    runs-on: ubuntu-latest
+    # 依赖上面两个架构编译全部完成
+    needs: build-android-gadget
+
+    steps:
+      - name: Download all artifacts from previous matrix jobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+
+      - name: Package gd.so + gd32.so into single zip
+        run: |
+          ls -la
+          mkdir -p final_package
+          cp output/gd.so final_package/
+          cp output/gd32.so final_package/
+          cd final_package
+          zip -r frida_gadget_all.zip gd.so gd32.so
+
+      - name: Upload single zip artifact（一次性下载包）
         uses: actions/upload-artifact@v4
         with:
-          name: frida-gadget-android-${{ matrix.arch }}
-          path: build/frida-android-${{ matrix.arch }}/lib/frida-1.0/gd.so
+          name: frida_gadget_all_in_one
+          path: final_package/frida_gadget_all.zip
